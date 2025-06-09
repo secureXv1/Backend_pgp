@@ -65,3 +65,14 @@ def registrar_mensaje(tunnel_id, uuid, alias, contenido, tipo="texto"):
     conn.commit()
     cursor.close()
     conn.close()
+
+def registrar_archivo(filename, url, sender_alias, tunnel_id, uuid):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO tunnel_files (filename, url, sender_alias, tunnel_id, client_uuid)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (filename, url, sender_alias, tunnel_id, uuid))
+    conn.commit()
+    cursor.close()
+    conn.close()

@@ -1,7 +1,20 @@
+import os
 from flask import Flask, request, jsonify
 from db import crear_tunel, obtener_tunel_por_nombre, registrar_mensaje
+from werkzeug.utils import secure_filename
+from db import registrar_archivo
+from flask import send_from_directory
+from flask_cors import CORS
+
 
 app = Flask(__name__)
+
+# 🔒 Solo permite peticiones del frontend local en desarrollo
+CORS(app, resources={r"/api/*": {"origins": "http://localhost:5173"}})
+
+# 💡 Cuando tengas dominio en producción, reemplaza por algo como:
+# CORS(app, resources={r"/api/*": {"origins": "https://portal.securex.com"}})
+
 
 @app.route('/api/tunnels/create', methods=['POST'])
 def crear():
@@ -75,7 +88,142 @@ def registrar_alias():
     except Exception as e:
         print("❌ Error registrando alias:", e)
         return jsonify({"error": "Error interno"}), 500
+    
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+@app.route('/api/upload-file', methods=['POST'])
+def upload_file():
+    file = request.files.get("file")
+    alias = request.form.get("alias")
+    tunnel_id = request.form.get("tunnel_id")
+    uuid = request.form.get("uuid")
+
+    if not file or not alias or not tunnel_id or not uuid:
+        return jsonify({"error": "Faltan datos"}), 400
+
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(filepath)
+
+    url = f"/uploads/{filename}"
+
+    registrar_archivo(filename, url, alias, tunnel_id, uuid)
+    return jsonify({"url": url, "filename": filename})
+
+@app.route("/uploads/<path:filename>")
+def descargar_archivo(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
+
+@app.route("/api/tunnels", methods=["GET"])
+def listar_tuneles():
+    from db import get_connection
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, name FROM tunnels ORDER BY id DESC")
+        tuneles = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return jsonify(tuneles)
+    except Exception as e:
+        print("❌ Error listando túneles:", e)
+        return jsonify({"error": "Error interno"}), 500
+    
+@app.route("/api/messages", methods=["GET"])
+def listar_mensajes():
+    from db import get_connection
+    tunnel_id = request.args.get("tunnel_id")
+
+    if not tunnel_id:
+        return jsonify({"error": "Falta el parámetro tunnel_id"}), 400
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT id, client_uuid, alias, contenido, tipo
+            FROM tunnel_messages
+            WHERE tunnel_id = %s
+            ORDER BY id DESC
+            LIMIT 100
+        """, (tunnel_id,))
+        mensajes = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return jsonify(mensajes)
+    except Exception as e:
+        print("❌ Error listando mensajes:", e)
+        return jsonify({"error": "Error interno"}), 500
+    
+@app.route("/api/files", methods=["GET"])
+def listar_archivos():
+    from db import get_connection
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, filename FROM tunnel_files ORDER BY id DESC")
+        archivos = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return jsonify(archivos)
+    except Exception as e:
+        print("❌ Error listando archivos:", e)
+        return jsonify({"error": "Error interno"}), 500
+
+@app.route("/api/users", methods=["GET"])
+def listar_usuarios():
+    from db import get_connection
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT DISTINCT client_uuid AS uuid, alias
+            FROM client_aliases
+            ORDER BY alias
+        """)
+        usuarios = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return jsonify(usuarios)
+    except Exception as e:
+        print("❌ Error listando usuarios:", e)
+        return jsonify({"error": "Error interno"}), 500
+    
+    
+@app.route("/api/files_by_day", methods=["GET"])
+def archivos_por_dia():
+    from db import get_connection
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DATE(uploaded_at) as fecha, COUNT(*) as total
+            FROM tunnel_files
+            GROUP BY DATE(uploaded_at)
+            ORDER BY fecha
+        """)
+        resultados = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return jsonify([
+            {"fecha": str(row[0]), "total": row[1]}
+            for row in resultados
+        ])
+    except Exception as e:
+        print("❌ Error agrupando archivos:", e)
+        return jsonify({"error": "Error interno"}), 500
+
+
+
+
+
+
+  
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
+
+
+

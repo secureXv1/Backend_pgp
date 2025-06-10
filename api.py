@@ -122,7 +122,11 @@ def listar_tuneles():
     try:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, name FROM tunnels ORDER BY id DESC")
+        cursor.execute("""
+            SELECT id, name, created_at 
+            FROM tunnels 
+            ORDER BY id DESC
+        """)
         tuneles = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -130,6 +134,7 @@ def listar_tuneles():
     except Exception as e:
         print("❌ Error listando túneles:", e)
         return jsonify({"error": "Error interno"}), 500
+
     
 @app.route("/api/messages", methods=["GET"])
 def listar_mensajes():
@@ -233,6 +238,33 @@ def listar_clientes():
     except Exception as e:
         print("❌ Error listando clientes:", e)
         return jsonify({"error": "Error interno"}), 500
+    
+@app.route("/api/tunnels/<int:tunnel_id>/participantes", methods=["GET"])
+def listar_participantes(tunnel_id):
+    from db import get_connection
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT DISTINCT ca.client_uuid, ca.alias, MAX(ca.conectado_en) AS conectado_en, cl.hostname
+            FROM client_aliases ca
+            LEFT JOIN clients cl ON cl.uuid = ca.client_uuid
+            WHERE ca.tunnel_id = %s
+            GROUP BY ca.client_uuid, ca.alias, cl.hostname
+            ORDER BY conectado_en DESC
+        """, (tunnel_id,))
+        
+        participantes = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return jsonify(participantes)
+    except Exception as e:
+        print("❌ Error listando participantes:", e)
+        return jsonify({"error": "Error interno"}), 500
+
+
+
 
 
 

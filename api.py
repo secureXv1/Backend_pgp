@@ -148,7 +148,7 @@ def listar_mensajes():
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT id, client_uuid, alias, contenido, tipo
+            SELECT id, client_uuid, alias, contenido, tipo, enviado_en
             FROM tunnel_messages
             WHERE tunnel_id = %s
             ORDER BY id DESC
@@ -239,6 +239,7 @@ def listar_clientes():
         print("❌ Error listando clientes:", e)
         return jsonify({"error": "Error interno"}), 500
     
+
 @app.route("/api/tunnels/<int:tunnel_id>/participantes", methods=["GET"])
 def listar_participantes(tunnel_id):
     from db import get_connection
@@ -247,12 +248,15 @@ def listar_participantes(tunnel_id):
         cursor = conn.cursor(dictionary=True)
 
         cursor.execute("""
-            SELECT DISTINCT ca.client_uuid, ca.alias, MAX(ca.conectado_en) AS conectado_en, cl.hostname
+            SELECT ca.client_uuid, ca.alias, ca.conectado_en, cl.hostname
             FROM client_aliases ca
             LEFT JOIN clients cl ON cl.uuid = ca.client_uuid
-            WHERE ca.tunnel_id = %s
-            GROUP BY ca.client_uuid, ca.alias, cl.hostname
-            ORDER BY conectado_en DESC
+            WHERE ca.tunnel_id = %s AND ca.id = (
+                SELECT sub.id FROM client_aliases sub
+                WHERE sub.client_uuid = ca.client_uuid AND sub.tunnel_id = ca.tunnel_id
+                ORDER BY sub.conectado_en DESC LIMIT 1
+            )
+            ORDER BY ca.conectado_en DESC
         """, (tunnel_id,))
         
         participantes = cursor.fetchall()
@@ -262,6 +266,9 @@ def listar_participantes(tunnel_id):
     except Exception as e:
         print("❌ Error listando participantes:", e)
         return jsonify({"error": "Error interno"}), 500
+
+
+
 
 
 

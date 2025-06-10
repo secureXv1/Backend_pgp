@@ -215,6 +215,26 @@ def archivos_por_dia():
         print("❌ Error agrupando archivos:", e)
         return jsonify({"error": "Error interno"}), 500
 
+@app.route("/api/clientes", methods=["GET"])
+def listar_clientes():
+    from db import get_connection
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT uuid, hostname, sistema_operativo, creado_en
+            FROM clients
+            ORDER BY creado_en DESC
+        """)
+        clientes = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return jsonify(clientes)
+    except Exception as e:
+        print("❌ Error listando clientes:", e)
+        return jsonify({"error": "Error interno"}), 500
+
+
 
 
 

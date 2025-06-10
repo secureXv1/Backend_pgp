@@ -1,10 +1,16 @@
 import os
+import csv
+import xml.etree.ElementTree as ET
 from flask import Flask, request, jsonify
 from db import crear_tunel, obtener_tunel_por_nombre, registrar_mensaje
 from werkzeug.utils import secure_filename
 from db import registrar_archivo
 from flask import send_from_directory
 from flask_cors import CORS
+from io import StringIO, BytesIO
+from flask import Response
+
+
 
 
 app = Flask(__name__)
@@ -246,26 +252,122 @@ def listar_participantes(tunnel_id):
     try:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
-
         cursor.execute("""
-            SELECT ca.client_uuid, ca.alias, ca.conectado_en, cl.hostname
+            SELECT ca.client_uuid, cl.hostname, ca.alias, MAX(ca.conectado_en) as ultimo_acceso
             FROM client_aliases ca
             LEFT JOIN clients cl ON cl.uuid = ca.client_uuid
-            WHERE ca.tunnel_id = %s AND ca.id = (
-                SELECT sub.id FROM client_aliases sub
-                WHERE sub.client_uuid = ca.client_uuid AND sub.tunnel_id = ca.tunnel_id
-                ORDER BY sub.conectado_en DESC LIMIT 1
-            )
-            ORDER BY ca.conectado_en DESC
+            WHERE ca.tunnel_id = %s
+            GROUP BY ca.client_uuid, cl.hostname, ca.alias
         """, (tunnel_id,))
-        
-        participantes = cursor.fetchall()
+        rows = cursor.fetchall()
         cursor.close()
         conn.close()
-        return jsonify(participantes)
+
+        # Agrupar por hostname
+        agrupado = {}
+        for row in rows:
+            clave = (row["client_uuid"], row["hostname"])
+            if clave not in agrupado:
+                agrupado[clave] = {
+                    "client_uuid": row["client_uuid"],
+                    "hostname": row["hostname"],
+                    "aliases": set(),
+                    "ultimo_acceso": row["ultimo_acceso"]
+                }
+            agrupado[clave]["aliases"].add(row["alias"])
+            # Mantener la fecha más reciente
+            if row["ultimo_acceso"] > agrupado[clave]["ultimo_acceso"]:
+                agrupado[clave]["ultimo_acceso"] = row["ultimo_acceso"]
+
+        return jsonify([
+            {
+                "client_uuid": val["client_uuid"],
+                "hostname": val["hostname"],
+                "aliases": list(val["aliases"]),
+                "ultimo_acceso": val["ultimo_acceso"]
+            }
+            for val in agrupado.values()
+        ])
     except Exception as e:
-        print("❌ Error listando participantes:", e)
+        print("❌ Error agrupando participantes:", e)
         return jsonify({"error": "Error interno"}), 500
+
+
+@app.route("/api/tunnels/<int:tunnel_id>/export", methods=["GET"])
+def exportar_chat(tunnel_id):
+    formato = request.args.get("formato", "csv")
+    from db import get_connection
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Obtener el nombre del túnel
+        cursor.execute("SELECT name FROM tunnels WHERE id = %s", (tunnel_id,))
+        tunel_info = cursor.fetchone()
+        tunel_nombre = tunel_info["name"] if tunel_info else f"tunel_{tunnel_id}"
+
+        # Obtener los mensajes
+        cursor.execute("""
+            SELECT alias, contenido, enviado_en 
+            FROM tunnel_messages
+            WHERE tunnel_id = %s
+            ORDER BY id ASC
+        """, (tunnel_id,))
+        mensajes = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        if formato == "csv":
+            output = StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["Alias", "Contenido", "Fecha"])
+            for msg in mensajes:
+                writer.writerow([msg["alias"], msg["contenido"], msg["enviado_en"]])
+            output.seek(0)
+            return Response(
+                output.getvalue(),
+                mimetype="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=chat_{tunel_nombre}.csv"}
+            )
+
+        elif formato == "xlsx":
+            import openpyxl
+            from openpyxl.utils import get_column_letter
+
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = f"{tunel_nombre}"
+
+            encabezados = ["Alias", "Contenido", "Fecha"]
+            ws.append(encabezados)
+
+            for msg in mensajes:
+                ws.append([msg["alias"], msg["contenido"], str(msg["enviado_en"])])
+
+            for i, col in enumerate(encabezados, start=1):
+                col_letter = get_column_letter(i)
+                ws.column_dimensions[col_letter].width = 30
+
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+
+            return Response(
+                output.getvalue(),
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f"attachment; filename=chat_{tunel_nombre}.xlsx"}
+            )
+
+        else:
+            return jsonify({"error": "Formato no soportado"}), 400
+
+    except Exception as e:
+        print("❌ Error exportando chat:", e)
+        return jsonify({"error": "Error interno"}), 500
+
+
+
+
 
 
 

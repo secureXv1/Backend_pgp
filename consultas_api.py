@@ -51,7 +51,7 @@ def listar_mensajes():
             query += " AND enviado_en <= %s"
             params.append(hasta)
 
-        query += " ORDER BY id DESC LIMIT 100"
+        query += " ORDER BY enviado_en ASC"
 
         cursor.execute(query, tuple(params))
         mensajes = cursor.fetchall()

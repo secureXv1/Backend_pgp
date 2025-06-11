@@ -31,6 +31,15 @@ def obtener_tunel_por_nombre(nombre):
     conn.close()
     return tunel
 
+def obtener_tunel_por_id(tunnel_id):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM tunnels WHERE id = %s", (tunnel_id,))
+    tunel = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return tunel
+
 def registrar_cliente(uuid, hostname, sistema):
     conn = get_connection()
     cursor = conn.cursor()

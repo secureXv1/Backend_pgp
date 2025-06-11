@@ -1,0 +1,96 @@
+from flask import Blueprint, request, jsonify
+from db import get_connection
+from password_utils import hash_password, verificar_password
+
+auth_bp = Blueprint("auth", __name__)
+
+@auth_bp.route("/api/auth/register", methods=["POST"])
+def registrar_usuario():
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
+    rol = data.get("rol")
+
+    if not username or not password or rol not in ["admin", "consulta"]:
+        return jsonify({"success": False, "error": "Datos inválidos"}), 400
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM usuarios WHERE username = %s", (username,))
+        if cursor.fetchone():
+            return jsonify({"success": False, "error": "Usuario ya existe"}), 409
+
+        hashed = hash_password(password)
+        cursor.execute(
+            "INSERT INTO usuarios (username, password, rol) VALUES (%s, %s, %s)",
+            (username, hashed, rol)
+        )
+        conn.commit()
+        return jsonify({"success": True, "message": "Usuario creado exitosamente"}), 201
+    except Exception as e:
+        print("❌ Error registrando usuario:", e)
+        return jsonify({"success": False, "error": "Error interno del servidor"}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@auth_bp.route("/api/auth/login", methods=["POST"])
+def login():
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, password, rol FROM usuarios WHERE username = %s", (username,))
+        user = cursor.fetchone()
+
+        if user and verificar_password(password, user["password"]):
+            return jsonify({
+                "success": True,
+                "id": user["id"],
+                "username": username,
+                "rol": user["rol"]
+            }), 200
+        else:
+            return jsonify({"success": False, "error": "Credenciales incorrectas"}), 401
+    except Exception as e:
+        print("❌ Error en login:", e)
+        return jsonify({"success": False, "error": "Error interno"}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@auth_bp.route("/api/auth/change-password", methods=["POST"])
+def cambiar_password():
+    data = request.json
+    username = data.get("username")
+    anterior = data.get("anterior")
+    nueva = data.get("nueva")
+
+    if not username or not anterior or not nueva:
+        return jsonify({"success": False, "error": "Datos incompletos"}), 400
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT password FROM usuarios WHERE username = %s", (username,))
+        user = cursor.fetchone()
+
+        if not user or not verificar_password(anterior, user["password"]):
+            return jsonify({"success": False, "error": "Contraseña anterior incorrecta"}), 401
+
+        hashed = hash_password(nueva)
+        cursor.execute("UPDATE usuarios SET password = %s WHERE username = %s", (hashed, username))
+        conn.commit()
+        return jsonify({"success": True, "message": "Contraseña actualizada exitosamente"}), 200
+    except Exception as e:
+        print("❌ Error cambiando contraseña:", e)
+        return jsonify({"success": False, "error": "Error interno"}), 500
+    finally:
+        cursor.close()
+        conn.close()

@@ -11,6 +11,7 @@ from flask_cors import CORS
 from io import StringIO, BytesIO
 from flask import Response
 from consultas_api import consultas_bp
+from auth_api import auth_bp  # ← asegúrate que el archivo se llama auth_api.py
 from flask import Flask
 from flask_cors import CORS
 
@@ -28,6 +29,8 @@ CORS(app, resources={r"/api/*": {"origins": "http://localhost:5173"}})
 
 # Rutas de consulta separadas
 app.register_blueprint(consultas_bp)
+app.register_blueprint(auth_bp)
+
 
 
 @app.route('/api/tunnels/create', methods=['POST'])
@@ -130,7 +133,41 @@ def upload_file():
 def descargar_archivo(filename):
     return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
 
-  
+@app.route('/api/tunnels/join', methods=['POST'])
+def unirse_a_tunel():
+    from db import obtener_tunel_por_id
+    from password_utils import verificar_password
+
+    try:
+        data = request.json
+        print("📥 Recibido:", data)
+
+        tunnel_id = data.get("tunnel_id")
+        password = data.get("password")
+        alias = data.get("alias")
+
+        if not tunnel_id or not password or not alias:
+            print("⚠️ Faltan datos")
+            return jsonify({"error": "Faltan datos"}), 400
+
+        tunel = obtener_tunel_por_id(tunnel_id)
+        print("🔍 Tunel encontrado:", tunel)
+
+        if not tunel:
+            return jsonify({"error": "Túnel no encontrado"}), 404
+
+        if not verificar_password(password, tunel["password_hash"]):
+            print("❌ Contraseña incorrecta")
+            return jsonify({"error": "Contraseña incorrecta"}), 401
+
+        print("✅ Validación exitosa")
+        return jsonify({"mensaje": "Acceso permitido"}), 200
+    
+    except Exception as e:
+        print("❌ Error interno:", e)
+        return jsonify({"error": str(e)}), 500
+
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)

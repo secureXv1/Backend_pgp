@@ -15,9 +15,6 @@ from auth_api import auth_bp  # ← asegúrate que el archivo se llama auth_api.
 from flask import Flask
 from flask_cors import CORS
 
-
-
-
 app = Flask(__name__)
 
 # 🔒 Solo permite peticiones del frontend local en desarrollo
@@ -26,12 +23,9 @@ CORS(app, resources={r"/api/*": {"origins": "http://localhost:5173"}})
 # 💡 Cuando tengas dominio en producción, reemplaza por algo como:
 # CORS(app, resources={r"/api/*": {"origins": "https://portal.securex.com"}})
 
-
 # Rutas de consulta separadas
 app.register_blueprint(consultas_bp)
 app.register_blueprint(auth_bp)
-
-
 
 @app.route('/api/tunnels/create', methods=['POST'])
 def crear():
@@ -41,17 +35,17 @@ def crear():
 
         nombre = data["name"]
         clave = data["password"]
+        uuid = data["uuid"]  # <- necesario para created_by
 
         from password_utils import hash_password
         hash_pw = hash_password(clave)
 
-        tunnel_id = crear_tunel(nombre, hash_pw)
+        tunnel_id = crear_tunel(nombre, hash_pw, uuid)  # <- PASAR EL uuid
         return jsonify({"tunnel_id": tunnel_id}), 201
 
     except Exception as e:
         print("❌ Error en /api/tunnels/create:", e)
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/api/tunnels/get', methods=['GET'])
 def get_tunel():
@@ -171,6 +165,3 @@ def unirse_a_tunel():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
-
-
-

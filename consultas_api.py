@@ -327,4 +327,49 @@ def descargar_archivo(file_id):
         return jsonify({"error": "Error interno"}), 500
 
 
+@consultas_bp.route("/api/logs", methods=["GET"])
+def consultar_logs():
+    username = request.args.get("username")  # quien consulta
+    desde = request.args.get("desde")
+    hasta = request.args.get("hasta")
+
+    if not username:
+        return jsonify({"error": "Falta el nombre de usuario"}), 400
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Verificar si tiene rol admin
+        cursor.execute("SELECT rol FROM usuarios WHERE username = %s", (username,))
+        result = cursor.fetchone()
+        if not result or result["rol"] != "admin":
+            return jsonify({"error": "No autorizado"}), 403
+
+        # Consulta general de logs (sin filtro por usuario)
+        query = "SELECT id, usuario, accion, modulo, fecha AS timestamp, ip FROM logs WHERE 1=1"
+        params = []
+
+        if desde:
+            query += " AND fecha >= %s"
+            params.append(int(datetime.strptime(desde, "%Y-%m-%d").timestamp() * 1000))
+        if hasta:
+            query += " AND fecha <= %s"
+            params.append(int(datetime.strptime(hasta, "%Y-%m-%d").timestamp() * 1000) + 86399999)
+
+        query += " ORDER BY fecha DESC LIMIT 500"
+
+        cursor.execute(query, tuple(params))
+        logs = cursor.fetchall()
+
+        return jsonify(logs)
+    except Exception as e:
+        print("❌ Error consultando logs:", e)
+        return jsonify({"error": "Error interno"}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
 

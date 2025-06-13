@@ -94,3 +94,50 @@ def cambiar_password():
     finally:
         cursor.close()
         conn.close()
+
+
+@auth_bp.route("/api/usuarios", methods=["GET"])
+def listar_usuarios_registrados():
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, username, rol, creado_en, activo FROM usuarios ORDER BY id DESC")
+        usuarios = cursor.fetchall()
+        return jsonify(usuarios)
+    except Exception as e:
+        print("❌ Error listando usuarios registrados:", e)
+        return jsonify({"error": "Error interno"}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
+
+@auth_bp.route("/api/usuarios/<int:user_id>/activar", methods=["POST"])
+def activar_usuario(user_id):
+    data = request.json
+    activo = data.get('activo')
+
+    try:
+        # ⚠️ Forzar conversión a 0 o 1
+        activo_valor = 1 if str(activo).lower() == "true" or activo is True else 0
+
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE usuarios SET activo = %s WHERE id = %s", (activo_valor, user_id))
+        conn.commit()
+
+        return jsonify({'success': True, 'activo': bool(activo_valor)})
+    except Exception as e:
+        print("❌ Error actualizando usuario:", e)
+        return jsonify({'success': False, 'error': 'Error interno'}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
+
+
+

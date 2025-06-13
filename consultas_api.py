@@ -6,6 +6,8 @@ import openpyxl
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 from datetime import datetime, timezone, timedelta
+from flask import send_file
+import os
 
 def ms_a_fecha_local(ms):
     if not ms:
@@ -273,4 +275,40 @@ def exportar_chat(tunnel_id):
     except Exception as e:
         print("❌ Error exportando chat:", e)
         return jsonify({"error": "Error interno"}), 500
+    
+
+
+@consultas_bp.route("/api/files/<int:file_id>/download", methods=["GET"])
+def descargar_archivo(file_id):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Solo buscamos el nombre del archivo
+        cursor.execute("SELECT filename FROM tunnel_files WHERE id = %s", (file_id,))
+        archivo = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not archivo:
+            return jsonify({"error": "Archivo no encontrado"}), 404
+
+        # Asume que todos los archivos están guardados en esta carpeta
+        carpeta_archivos = os.path.join(os.getcwd(), "uploads")
+        ruta_absoluta = os.path.join(carpeta_archivos, archivo["filename"])
+
+        if not os.path.exists(ruta_absoluta):
+            return jsonify({"error": "Archivo físico no encontrado"}), 404
+
+        return send_file(
+            ruta_absoluta,
+            as_attachment=True,
+            download_name=archivo["filename"]
+        )
+
+    except Exception as e:
+        print("❌ Error al descargar archivo:", e)
+        return jsonify({"error": "Error interno"}), 500
+
+
 

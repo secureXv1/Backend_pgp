@@ -45,16 +45,20 @@ def login():
     try:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, password, rol FROM usuarios WHERE username = %s", (username,))
+        cursor.execute("SELECT id, password, rol, activo FROM usuarios WHERE username = %s", (username,))
         user = cursor.fetchone()
 
         if user and verificar_password(password, user["password"]):
+            if user["activo"] != 1:
+                return jsonify({"success": False, "error": "Usuario inactivo"}), 403
+
             return jsonify({
                 "success": True,
                 "id": user["id"],
                 "username": username,
                 "rol": user["rol"]
             }), 200
+
         else:
             return jsonify({"success": False, "error": "Credenciales incorrectas"}), 401
     except Exception as e:

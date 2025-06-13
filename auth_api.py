@@ -202,6 +202,24 @@ def cambiar_rol_usuario(user_id):
         conn.close()
 
 
+@auth_bp.route("/api/auth/logout", methods=["POST"])
+def logout():
+    data = request.json
+    username = data.get("username")  # Se espera que el frontend lo envíe
+    ip = request.remote_addr
+
+    if not username:
+        return jsonify({"success": False, "error": "Falta el nombre de usuario"}), 400
+
+    try:
+        registrar_log(username, "Cierre de sesión", "Autenticación", ip)
+        return jsonify({"success": True, "message": "Sesión cerrada correctamente"}), 200
+    except Exception as e:
+        print("❌ Error en logout:", e)
+        return jsonify({"success": False, "error": "Error interno"}), 500
+
+
+
 
 
 

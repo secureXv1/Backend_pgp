@@ -8,6 +8,7 @@ from datetime import datetime
 from datetime import datetime, timezone, timedelta
 from flask import send_file
 import os
+from logs_db import registrar_log 
 
 def ms_a_fecha_local(ms):
     if not ms:
@@ -199,6 +200,7 @@ def exportar_chat(tunnel_id):
     formato = request.args.get("formato", "csv")
     desde = request.args.get("desde")
     hasta = request.args.get("hasta")
+    username = request.args.get("username")  # ← Captura del usuario para el log
 
     try:
         zona_colombia = timezone(timedelta(hours=-5))
@@ -217,10 +219,10 @@ def exportar_chat(tunnel_id):
 
         if desde:
             query += " AND enviado_en >= %s"
-            params.append(int(desde))  # 👈 usar directamente como int
+            params.append(int(desde))
         if hasta:
             query += " AND enviado_en <= %s"
-            params.append(int(hasta))  # 👈 usar directamente como int
+            params.append(int(hasta))
 
         query += " ORDER BY id ASC"
         cursor.execute(query, tuple(params))
@@ -231,9 +233,12 @@ def exportar_chat(tunnel_id):
         if not mensajes:
             print(f"⚠️ No hay mensajes para tunel_id={tunnel_id} en el rango {desde} - {hasta}")
 
+        # ✅ REGISTRO DEL LOG
+        if username:
+            from logs_db import registrar_log
+            ip = request.remote_addr
+            registrar_log(username, f"Descargó chat del túnel '{tunel_nombre}' (ID {tunnel_id})", "Exportación", ip)
 
-
-       # CSV export
         if formato == "csv":
             output = StringIO()
             writer = csv.writer(output)
@@ -249,7 +254,6 @@ def exportar_chat(tunnel_id):
                 headers={"Content-Disposition": f"attachment; filename=chat_{tunel_nombre}.csv"}
             )
 
-        # XLSX export
         elif formato == "xlsx":
             wb = openpyxl.Workbook()
             ws = wb.active
@@ -275,17 +279,21 @@ def exportar_chat(tunnel_id):
     except Exception as e:
         print("❌ Error exportando chat:", e)
         return jsonify({"error": "Error interno"}), 500
+
     
 
 
 @consultas_bp.route("/api/files/<int:file_id>/download", methods=["GET"])
 def descargar_archivo(file_id):
+    username = request.args.get("username")  # 👈 capturamos el username
+    ip = request.remote_addr  # 👈 capturamos la IP
+
     try:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
 
-        # Solo buscamos el nombre del archivo
-        cursor.execute("SELECT filename FROM tunnel_files WHERE id = %s", (file_id,))
+        # Obtener nombre y túnel del archivo
+        cursor.execute("SELECT filename, tunnel_id FROM tunnel_files WHERE id = %s", (file_id,))
         archivo = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -293,12 +301,20 @@ def descargar_archivo(file_id):
         if not archivo:
             return jsonify({"error": "Archivo no encontrado"}), 404
 
-        # Asume que todos los archivos están guardados en esta carpeta
         carpeta_archivos = os.path.join(os.getcwd(), "uploads")
         ruta_absoluta = os.path.join(carpeta_archivos, archivo["filename"])
 
         if not os.path.exists(ruta_absoluta):
             return jsonify({"error": "Archivo físico no encontrado"}), 404
+
+        # ✅ Registrar el log
+        if username:
+            registrar_log(
+                usuario=username,
+                accion=f"Descargó el archivo '{archivo['filename']}' del túnel ID {archivo['tunnel_id']}",
+                modulo="Archivos",
+                ip=ip
+            )
 
         return send_file(
             ruta_absoluta,

@@ -59,7 +59,23 @@ def get_tunel():
 @app.route('/api/messages/save', methods=['POST'])
 def guardar_mensaje():
     data = request.json
-    registrar_mensaje(data["tunnel_id"], data["uuid"], data["alias"], data["contenido"], data.get("tipo", "texto"))
+
+    tipo = data.get("tipo", "texto")
+    contenido = data.get("contenido")
+
+    if tipo == "file":
+        texto_final = f"{data['alias']} envió un archivo: {contenido.get('filename', 'archivo')}"
+    elif tipo == "texto":
+        if isinstance(contenido, dict):
+            texto_final = contenido.get("text", "")
+        elif isinstance(contenido, str):
+            texto_final = contenido
+        else:
+            texto_final = str(contenido)
+    else:
+        texto_final = contenido if isinstance(contenido, str) else str(contenido)
+
+    registrar_mensaje(data["tunnel_id"], data["uuid"], data["alias"], texto_final, tipo)
     return "", 204
 
 @app.route('/api/registrar_cliente', methods=['POST'])

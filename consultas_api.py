@@ -4,6 +4,15 @@ from io import StringIO, BytesIO
 import csv
 import openpyxl
 from openpyxl.utils import get_column_letter
+from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+def ms_a_fecha_local(ms):
+    if not ms:
+        return ""
+    dt_utc = datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc)
+    dt_local = dt_utc.astimezone(tz=timezone(timedelta(hours=-5)))  # 🇨🇴 Colombia
+    return dt_local.strftime("%d/%m/%Y %H:%M:%S")
 
 consultas_bp = Blueprint("consultas", __name__)
 
@@ -67,7 +76,12 @@ def listar_archivos():
     try:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, filename FROM tunnel_files ORDER BY id DESC")
+        cursor.execute("""
+            SELECT f.id, f.filename, f.uploaded_at, f.tunnel_id, f.client_uuid, f.sender_alias, t.name as tunnel_name
+            FROM tunnel_files f
+            LEFT JOIN tunnels t ON t.id = f.tunnel_id
+            ORDER BY f.id DESC
+        """)
         archivos = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -75,6 +89,7 @@ def listar_archivos():
     except Exception as e:
         print("❌ Error listando archivos:", e)
         return jsonify({"error": "Error interno"}), 500
+
 
 @consultas_bp.route("/api/users", methods=["GET"])
 def listar_usuarios():
@@ -184,6 +199,7 @@ def exportar_chat(tunnel_id):
     hasta = request.args.get("hasta")
 
     try:
+        zona_colombia = timezone(timedelta(hours=-5))
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT name FROM tunnels WHERE id = %s", (tunnel_id,))
@@ -199,10 +215,10 @@ def exportar_chat(tunnel_id):
 
         if desde:
             query += " AND enviado_en >= %s"
-            params.append(desde)
+            params.append(int(desde))  # 👈 usar directamente como int
         if hasta:
             query += " AND enviado_en <= %s"
-            params.append(hasta)
+            params.append(int(hasta))  # 👈 usar directamente como int
 
         query += " ORDER BY id ASC"
         cursor.execute(query, tuple(params))
@@ -210,12 +226,20 @@ def exportar_chat(tunnel_id):
         cursor.close()
         conn.close()
 
+        if not mensajes:
+            print(f"⚠️ No hay mensajes para tunel_id={tunnel_id} en el rango {desde} - {hasta}")
+
+
+
+       # CSV export
         if formato == "csv":
             output = StringIO()
             writer = csv.writer(output)
             writer.writerow(["Alias", "Contenido", "Fecha"])
             for msg in mensajes:
-                writer.writerow([msg["alias"], msg["contenido"], msg["enviado_en"]])
+                dt_local = datetime.fromtimestamp(msg["enviado_en"] / 1000, tz=timezone.utc).astimezone(zona_colombia)
+                fecha_legible = dt_local.strftime("%Y-%m-%d %H:%M:%S")
+                writer.writerow([msg["alias"], msg["contenido"], fecha_legible])
             output.seek(0)
             return Response(
                 output.getvalue(),
@@ -223,17 +247,18 @@ def exportar_chat(tunnel_id):
                 headers={"Content-Disposition": f"attachment; filename=chat_{tunel_nombre}.csv"}
             )
 
+        # XLSX export
         elif formato == "xlsx":
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = f"{tunel_nombre}"
-            encabezados = ["Alias", "Contenido", "Fecha"]
-            ws.append(encabezados)
+            ws.append(["Alias", "Contenido", "Fecha"])
             for msg in mensajes:
-                ws.append([msg["alias"], msg["contenido"], str(msg["enviado_en"])])
-            for i, col in enumerate(encabezados, start=1):
-                col_letter = get_column_letter(i)
-                ws.column_dimensions[col_letter].width = 30
+                dt_local = datetime.fromtimestamp(msg["enviado_en"] / 1000, tz=timezone.utc).astimezone(zona_colombia)
+                fecha_legible = dt_local.strftime("%Y-%m-%d %H:%M:%S")
+                ws.append([msg["alias"], msg["contenido"], fecha_legible])
+            for i in range(1, 4):
+                ws.column_dimensions[get_column_letter(i)].width = 30
             output = BytesIO()
             wb.save(output)
             output.seek(0)
@@ -242,8 +267,10 @@ def exportar_chat(tunnel_id):
                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 headers={"Content-Disposition": f"attachment; filename=chat_{tunel_nombre}.xlsx"}
             )
-        else:
-            return jsonify({"error": "Formato no soportado"}), 400
+
+        return jsonify({"error": "Formato no soportado"}), 400
+
     except Exception as e:
         print("❌ Error exportando chat:", e)
         return jsonify({"error": "Error interno"}), 500
+

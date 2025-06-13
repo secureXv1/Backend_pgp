@@ -1,6 +1,8 @@
 from flask import Blueprint, request, jsonify
 from db import get_connection
 from password_utils import hash_password, verificar_password
+from logs_db import registrar_log
+from flask import request
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -52,6 +54,10 @@ def login():
             if user["activo"] != 1:
                 return jsonify({"success": False, "error": "Usuario inactivo"}), 403
 
+            # ✅ REGISTRO DEL LOG
+            ip = request.remote_addr
+            registrar_log(username, "Inicio de sesión exitoso", "Autenticación", ip)
+
             return jsonify({
                 "success": True,
                 "id": user["id"],
@@ -61,6 +67,7 @@ def login():
 
         else:
             return jsonify({"success": False, "error": "Credenciales incorrectas"}), 401
+
     except Exception as e:
         print("❌ Error en login:", e)
         return jsonify({"success": False, "error": "Error interno"}), 500
@@ -91,13 +98,21 @@ def cambiar_password():
         hashed = hash_password(nueva)
         cursor.execute("UPDATE usuarios SET password = %s WHERE username = %s", (hashed, username))
         conn.commit()
+
+        # ✅ REGISTRAR LOG
+        from logs_db import registrar_log
+        ip = request.remote_addr
+        registrar_log(username, "Cambio de contraseña exitoso", "Autenticación", ip)
+
         return jsonify({"success": True, "message": "Contraseña actualizada exitosamente"}), 200
+
     except Exception as e:
         print("❌ Error cambiando contraseña:", e)
         return jsonify({"success": False, "error": "Error interno"}), 500
     finally:
         cursor.close()
         conn.close()
+
 
 
 @auth_bp.route("/api/usuarios", methods=["GET"])
@@ -129,8 +144,20 @@ def activar_usuario(user_id):
 
         conn = get_connection()
         cursor = conn.cursor()
+
+        # Obtener username para el log (opcional pero útil)
+        cursor.execute("SELECT username FROM usuarios WHERE id = %s", (user_id,))
+        result = cursor.fetchone()
+        username = result[0] if result else f"usuario_id:{user_id}"
+
         cursor.execute("UPDATE usuarios SET activo = %s WHERE id = %s", (activo_valor, user_id))
         conn.commit()
+
+        # ✅ REGISTRAR LOG
+        from logs_db import registrar_log
+        ip = request.remote_addr
+        estado = "Activado" if activo_valor == 1 else "Desactivado"
+        registrar_log(username, f"Usuario {estado}", "Gestión de usuarios", ip)
 
         return jsonify({'success': True, 'activo': bool(activo_valor)})
     except Exception as e:
@@ -139,6 +166,7 @@ def activar_usuario(user_id):
     finally:
         cursor.close()
         conn.close()
+
 
 @auth_bp.route("/api/usuarios/<int:user_id>/cambiar-rol", methods=["POST"])
 def cambiar_rol_usuario(user_id):
@@ -151,8 +179,20 @@ def cambiar_rol_usuario(user_id):
     try:
         conn = get_connection()
         cursor = conn.cursor()
+
+        # Obtener username para registrar en el log
+        cursor.execute("SELECT username FROM usuarios WHERE id = %s", (user_id,))
+        result = cursor.fetchone()
+        username = result[0] if result else f"usuario_id:{user_id}"
+
         cursor.execute("UPDATE usuarios SET rol = %s WHERE id = %s", (nuevo_rol, user_id))
         conn.commit()
+
+        # ✅ REGISTRO DEL LOG
+        from logs_db import registrar_log
+        ip = request.remote_addr
+        registrar_log(username, f"Rol cambiado a {nuevo_rol}", "Gestión de usuarios", ip)
+
         return jsonify({"success": True, "message": "Rol actualizado correctamente"})
     except Exception as e:
         print("❌ Error cambiando rol:", e)
@@ -160,6 +200,7 @@ def cambiar_rol_usuario(user_id):
     finally:
         cursor.close()
         conn.close()
+
 
 
 

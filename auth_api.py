@@ -140,6 +140,28 @@ def activar_usuario(user_id):
         cursor.close()
         conn.close()
 
+@auth_bp.route("/api/usuarios/<int:user_id>/cambiar-rol", methods=["POST"])
+def cambiar_rol_usuario(user_id):
+    data = request.json
+    nuevo_rol = data.get("rol")
+
+    if nuevo_rol not in ["admin", "consulta"]:
+        return jsonify({"success": False, "error": "Rol no válido"}), 400
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE usuarios SET rol = %s WHERE id = %s", (nuevo_rol, user_id))
+        conn.commit()
+        return jsonify({"success": True, "message": "Rol actualizado correctamente"})
+    except Exception as e:
+        print("❌ Error cambiando rol:", e)
+        return jsonify({"success": False, "error": "Error interno"}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
 
 
 

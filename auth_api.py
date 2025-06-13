@@ -219,6 +219,44 @@ def logout():
         return jsonify({"success": False, "error": "Error interno"}), 500
 
 
+@auth_bp.route("/api/usuarios/<int:user_id>/reset-password", methods=["POST"])
+def resetear_password_admin(user_id):
+    data = request.json
+    nueva = data.get("nueva")
+    solicitante = data.get("admin_username")
+
+    if not nueva or not solicitante:
+        return jsonify({"success": False, "error": "Faltan datos"}), 400
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Verificar que quien solicita sea admin
+        cursor.execute("SELECT rol FROM usuarios WHERE username = %s", (solicitante,))
+        result = cursor.fetchone()
+        if not result or result["rol"] != "admin":
+            return jsonify({"success": False, "error": "No autorizado"}), 403
+
+        hashed = hash_password(nueva)
+        cursor.execute("UPDATE usuarios SET password = %s WHERE id = %s", (hashed, user_id))
+        conn.commit()
+
+        # Log
+        from logs_db import registrar_log
+        ip = request.remote_addr
+        cursor.execute("SELECT username FROM usuarios WHERE id = %s", (user_id,))
+        target = cursor.fetchone()
+        if target:
+            registrar_log(solicitante, f"Reseteó contraseña de {target['username']}", "Gestión de usuarios", ip)
+
+        return jsonify({"success": True, "message": "Contraseña actualizada"})
+    except Exception as e:
+        print("❌ Error reseteando contraseña:", e)
+        return jsonify({"success": False, "error": "Error interno"}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 
 
